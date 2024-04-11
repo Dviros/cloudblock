@@ -30,7 +30,7 @@ echo "somepassword" | sudo tee /opt/pihole/ph_password >/dev/null
 sudo chmod 600 /opt/pihole/ph_password
 
 # Execute playbook via ansible - either _amd64 or _arm64 
-ansible-playbook cloudblock_amd64.yml --extra-vars="doh_provider=$doh_provider dns_novpn=$dns_novpn wireguard_peers=$wireguard_peers vpn_traffic=$vpn_traffic docker_network=$docker_network docker_gw=$docker_gw docker_doh=$docker_doh docker_pihole=$docker_pihole docker_wireguard=$docker_wireguard docker_webproxy=$docker_webproxy wireguard_network=$wireguard_network wireguard_hostname=$wireguard_hostname"
+sudo ansible-playbook cloudblock_arm64.yml --extra-vars="doh_provider=cloudflare dns_novpn=1 wireguard_peers=2 vpn_traffic=all docker_network=10.0.0.0 docker_gw=10.0.0.1 docker_doh=10.0.0.2 docker_pihole=10.0.0.3 docker_wireguard=10.0.0.4 docker_webproxy=10.0.0.5 wireguard_network=10.0.1.0 wireguard_hostname=mywireguard"
 
 # See Playbook Summary output for Pihole WebUI URL and Wireguard Client files
 ```
