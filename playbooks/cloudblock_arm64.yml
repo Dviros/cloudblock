@@ -1,5 +1,5 @@
 ---
-- name: Cloudblock - arm64 standalone variant
+- name: Cloudblock - arm64 standalone variant - Jetson Nano
   hosts: localhost
   gather_facts: true
   become: true
@@ -19,22 +19,31 @@
           quad9-recommended: https://dns.quad9.net/dns-query
           libre-dns: https://doh.libredns.gr/dns-query
           opendns: https://doh.opendns.com/dns-query
-    
-    - name: Add repo using key from URL
-      deb822_repository:
-        name: docker
-        types: deb
-        uris: https://download.docker.com/linux/ubuntu
-        suites: '{{ ansible_distribution_release }}'
-        components: stable
-        architectures: arm64
-        signed_by: https://download.docker.com/linux/ubuntu/gpg
-        
+
+    - name: Check if Docker apt key exists
+      stat:
+       path: /etc/apt/keyrings/docker.asc
+      register: docker_key_stat
+
+    - name: Docker apt key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+      when: not docker_key_stat.stat.exists
+
     - name: Dpkg Architecture
       ansible.builtin.shell: |
         dpkg --print-architecture
       register: dpkg_arch
-    
+
+    - name: Docker apt repo
+      ansible.builtin.apt_repository:
+        repo: >
+          deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+
     - name: Absent packages
       ansible.builtin.apt:
         pkg:
@@ -92,8 +101,8 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        owner: "999"
-        group: "999"
+        owner: "1000"
+        group: "0"
         mode: '0750'
       with_items:
         - /opt/cloudflared
@@ -102,6 +111,15 @@
         - /opt/pihole/dnsmasq.d
         - /opt/webproxy
         - /opt/wireguard
+
+    - name: Set correct permissions for Pi-hole config files
+      ansible.builtin.file:
+        path: /opt/pihole/etc/setupVars.conf
+        owner: 1000  # Adjust the owner as per your web server's user
+        group: 0  # Adjust the group as per your web server's user, if necessary
+        mode: '0644'
+      become: true
+
 
     - name: Determine ph_password file exists
       ansible.builtin.stat:
@@ -147,6 +165,12 @@
         - httpd-ssl.conf
         - httpd.conf
 
+
+    - name: Verify docker_doh variable is defined
+      ansible.builtin.fail:
+        msg: "'docker_doh' variable is not defined. Please provide it using the --extra-vars option."
+      when: docker_doh is not defined
+
     - name: Cloudflared Dockerfile
       ansible.builtin.blockinfile:
         create: true
@@ -161,6 +185,7 @@
               wget https://github.com/cloudflare/cloudflared/releases/download/2023.6.1/cloudflared-linux-arm64 --directory-prefix=/usr/local/bin/ && \
               chmod 555 /usr/local/bin/cloudflared-linux-arm64
           ENTRYPOINT ["/usr/local/bin/cloudflared-linux-arm64", "proxy-dns","--address", "{{ docker_doh }}", "--port", "53", "--upstream", "{{ url_from_doh_provider[doh_provider] }}"]
+      when: docker_doh is defined
       register: cloudflared_doh_dockerfile
 
     - name: Check cloudflared image exists
@@ -238,7 +263,7 @@
         pull: true
         restart_policy: "always"
       when: dns_novpn == "1"
-      no_log: true
+      no_log: false
 
     - name: Wireguard container
       community.docker.docker_container:
@@ -286,17 +311,6 @@
         pull: true
         restart_policy: "always"
 
-    - name: Wait for final peer conf (Wireguard)
-      ansible.builtin.wait_for:
-        path: "/opt/wireguard/peer{{ wireguard_peers }}/{{ item }}"
-        state: present
-        timeout: 600
-        sleep: 1
-      with_items:
-        - "publickey-peer{{ wireguard_peers }}"
-        - "privatekey-peer{{ wireguard_peers }}"
-        - "peer{{ wireguard_peers }}.conf"
-        - "peer{{ wireguard_peers }}.png"
 
     - name: Playbook Summary
       ansible.builtin.debug:
